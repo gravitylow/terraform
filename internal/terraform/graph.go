@@ -42,6 +42,8 @@ func (g *Graph) walk(walker GraphWalker) tfdiags.Diagnostics {
 	// The callbacks for enter/exiting a graph
 	ctx := walker.EvalContext()
 
+	var executions = 0
+
 	// Walk the graph.
 	walkFn := func(v dag.Vertex) (diags tfdiags.Diagnostics) {
 		// the walkFn is called asynchronously, and needs to be recovered
@@ -75,8 +77,24 @@ func (g *Graph) walk(walker GraphWalker) tfdiags.Diagnostics {
 
 		// If the node is exec-able, then execute it.
 		if ev, ok := v.(GraphNodeExecutable); ok {
+			if executions > 0 {
+				log.Printf("[TRACE] Not executing vertex %q since executions = %d", dag.VertexName(v), executions)
+				return
+			}
+			log.Printf("[TRACE] vertex %q: executing", dag.VertexName(v))
 			diags = diags.Append(walker.Execute(vertexCtx, ev))
 			if diags.HasErrors() {
+				return
+			}
+			if _, ok := v.(*NodeDestroyResourceInstance); ok {
+				log.Printf("[TRACE] returning after destroying one instances %q", dag.VertexName(v))
+				executions++
+				return
+			}
+
+			if _, ok := v.(*NodeApplyableResourceInstance); ok {
+				log.Printf("[TRACE] returning after creating one instances %q", dag.VertexName(v))
+				executions++
 				return
 			}
 		}
